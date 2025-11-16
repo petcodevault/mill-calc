@@ -56,15 +56,29 @@ def has_valid_mill(player, color):
 #  Разрешённые ходы
 # ========================
 
+# Original
+# neighbors = {
+#     A1: [A2, B1, B2],
+#     A2: [A1, A3, B1, B2, B3],
+#     A3: [A2, B2, B3],
+#     B1: [A1, A2, B2, C1, C2],
+#     B2: [A1, A2, A3, B1, B3, C1, C2, C3],
+#     B3: [A2, A3, B2, C2, C3],
+#     C1: [B1, B2, C2],
+#     C2: [B1, B2, B3, C1, C3],
+#     C3: [B2, B3, C2]
+# }
+
+# Classic
 neighbors = {
     A1: [A2, B1, B2],
-    A2: [A1, A3, B1, B2, B3],
+    A2: [A1, A3, B3],
     A3: [A2, B2, B3],
-    B1: [A1, A2, B2, C1, C2],
+    B1: [A1, B2, C1],
     B2: [A1, A2, A3, B1, B3, C1, C2, C3],
-    B3: [A2, A3, B2, C2, C3],
+    B3: [A3, B2, C3],
     C1: [B1, B2, C2],
-    C2: [B1, B2, B3, C1, C3],
+    C2: [B2, C1, C3],
     C3: [B2, B3, C2]
 }
 
@@ -72,6 +86,25 @@ neighbors = {
 # =====================================
 #  Формирование словаря (с фильтрацией)
 # =====================================
+
+def generate_forbidden_options(stones):
+    """
+    Возвращает список допустимых запрещённых ходов для данного набора камней.
+    None означает, что запрета нет.
+    """
+    options = [None]
+    seen = set()
+    stone_set = set(stones)
+    for cur in stones:
+        for prev in neighbors[cur]:
+            if prev in stone_set:
+                continue
+            pair = (cur, prev)
+            if pair not in seen:
+                seen.add(pair)
+                options.append(pair)
+    return options
+
 
 position_to_index = {}
 index_to_position = []
@@ -95,9 +128,22 @@ for red in combinations(cells, 3):
         if red_m and black_m:
             continue
 
-        position_to_index[(r, b)] = idx
-        index_to_position.append((r, b))
-        idx += 1
+        red_forbidden_options = generate_forbidden_options(r)
+        black_forbidden_options = generate_forbidden_options(b)
+
+        for red_forbidden in red_forbidden_options:
+            for black_forbidden in black_forbidden_options:
+                state = (r, b, red_forbidden, black_forbidden)
+                position_to_index[state] = idx
+                index_to_position.append(state)
+                idx += 1
+
+
+def lookup_state_index(red_cells, black_cells, red_forbidden=None, black_forbidden=None):
+    r = tuple(sorted(red_cells))
+    b = tuple(sorted(black_cells))
+    state = (r, b, red_forbidden, black_forbidden)
+    return position_to_index.get(state)
 
 print("Размер словаря после фильтрации:", len(position_to_index))
 
@@ -107,7 +153,7 @@ print("Размер словаря после фильтрации:", len(positi
 #  Генерация ходов
 # ========================
 
-def generate_moves_for_color(r, b, color, position_to_index):
+def generate_moves_for_color(r, b, red_forbidden, black_forbidden, color, position_to_index):
     """
     r, b — кортежи позиций камней красных и чёрных (например (1,4,7))
     color — COLOR_RED или COLOR_BLACK
@@ -122,15 +168,21 @@ def generate_moves_for_color(r, b, color, position_to_index):
     if color == COLOR_RED:
         my_stones = red_set
         opp_stones = black_set
+        forbidden_move = red_forbidden
     else:
         my_stones = black_set
         opp_stones = red_set
+        forbidden_move = black_forbidden
 
     for src in my_stones:
         for dst in neighbors[src]:
 
             # если занято — пропустить
             if dst in red_set or dst in black_set:
+                continue
+
+            # запрещаем немедленно отменять предыдущий ход
+            if forbidden_move and src == forbidden_move[0] and dst == forbidden_move[1]:
                 continue
 
             # перемещаем src → dst
@@ -142,11 +194,15 @@ def generate_moves_for_color(r, b, color, position_to_index):
             if color == COLOR_RED:
                 new_r = tuple(sorted(new_my))
                 new_b = tuple(sorted(opp_stones))
+                new_red_forbidden = (dst, src)
+                new_black_forbidden = black_forbidden
             else:
                 new_r = tuple(sorted(opp_stones))
                 new_b = tuple(sorted(new_my))
+                new_red_forbidden = red_forbidden
+                new_black_forbidden = (dst, src)
 
-            pos = (new_r, new_b)
+            pos = (new_r, new_b, new_red_forbidden, new_black_forbidden)
 
             # позиция должна существовать в словаре
             idx = position_to_index.get(pos)
@@ -171,13 +227,13 @@ def build_transition_maps(index_to_position, position_to_index):
     incoming_red = {idx: [] for idx in range(len(index_to_position))}
     incoming_black = {idx: [] for idx in range(len(index_to_position))}
 
-    for idx, (r, b) in enumerate(index_to_position):
-        red_moves = generate_moves_for_color(r, b, COLOR_RED, position_to_index)
+    for idx, (r, b, red_forbidden, black_forbidden) in enumerate(index_to_position):
+        red_moves = generate_moves_for_color(r, b, red_forbidden, black_forbidden, COLOR_RED, position_to_index)
         outgoing_red[idx] = red_moves
         for next_idx in red_moves:
             incoming_red[next_idx].append(idx)
 
-        black_moves = generate_moves_for_color(r, b, COLOR_BLACK, position_to_index)
+        black_moves = generate_moves_for_color(r, b, red_forbidden, black_forbidden, COLOR_BLACK, position_to_index)
         outgoing_black[idx] = black_moves
         for next_idx in black_moves:
             incoming_black[next_idx].append(idx)
@@ -188,15 +244,31 @@ def build_transition_maps(index_to_position, position_to_index):
 outgoing_red, outgoing_black, predecessor_map_red, predecessor_map_black = build_transition_maps(index_to_position, position_to_index)
 
 
+def forbidden_to_labels(forbidden):
+    if forbidden is None:
+        return None
+    return (cell_to_label[forbidden[0]], cell_to_label[forbidden[1]])
+
+
+def format_forbidden_field(forbidden_labels):
+    if forbidden_labels is None:
+        return "null"
+    return f"[{forbidden_labels[0]}, {forbidden_labels[1]}]"
+
+
 def print_sources_for_position(index):
     """
     Показывает, из каких позиций можно попасть в указанную (раздельно по цветам).
     """
-    r, b = index_to_position[index]
+    r, b, red_forbidden, black_forbidden = index_to_position[index]
     r_labels = tuple(cell_to_label[c] for c in r)
     b_labels = tuple(cell_to_label[c] for c in b)
+    red_forbidden_labels = forbidden_to_labels(red_forbidden)
+    black_forbidden_labels = forbidden_to_labels(black_forbidden)
 
     print(f"\nПозиция #{index}:  Red={r_labels}  Black={b_labels}")
+    print(f"   Запрет красных: {red_forbidden_labels}")
+    print(f"   Запрет чёрных: {black_forbidden_labels}")
 
     red_sources = predecessor_map_red.get(index, [])
     black_sources = predecessor_map_black.get(index, [])
@@ -225,10 +297,10 @@ def print_all_positions():
     Полный вывод всех позиций и их индексов.
     """
     print("\nПолный список позиций:")
-    for idx, (r, b) in enumerate(index_to_position):
+    for idx, (r, b, red_forbidden, black_forbidden) in enumerate(index_to_position):
         r_labels = tuple(cell_to_label[c] for c in r)
         b_labels = tuple(cell_to_label[c] for c in b)
-        print(f"#{idx}: Red={r_labels}  Black={b_labels}")
+        print(f"#{idx}: Red={r_labels}  Black={b_labels}  R-ban={forbidden_to_labels(red_forbidden)}  B-ban={forbidden_to_labels(black_forbidden)}")
 
 
 # ==============================
@@ -253,7 +325,7 @@ def run_retrograde_analysis():
 
     queue = deque()
 
-    for idx, (r, b) in enumerate(index_to_position):
+    for idx, (r, b, _, _) in enumerate(index_to_position):
         red_win = has_valid_mill(r, COLOR_RED)
         black_win = has_valid_mill(b, COLOR_BLACK)
 
@@ -339,9 +411,12 @@ def print_move_outcomes(index, color):
     next_turn = COLOR_BLACK if color == COLOR_RED else COLOR_RED
     label = 'красных' if color == COLOR_RED else 'чёрных'
 
-    r = tuple(cell_to_label[c] for c in index_to_position[index][0])
-    b = tuple(cell_to_label[c] for c in index_to_position[index][1])
+    r_tuple, b_tuple, red_forbidden, black_forbidden = index_to_position[index]
+    r = tuple(cell_to_label[c] for c in r_tuple)
+    b = tuple(cell_to_label[c] for c in b_tuple)
     print(f"\nАнализ ходов для позиции #{index} (ход {label}): Red={r} Black={b}")
+    print(f"   Запрет красных: {forbidden_to_labels(red_forbidden)}")
+    print(f"   Запрет чёрных: {forbidden_to_labels(black_forbidden)}")
 
     options = moves.get(index, [])
     if not options:
@@ -354,8 +429,9 @@ def print_move_outcomes(index, color):
 
     for target in options:
         status_next = retro_status[next_turn][target]
-        tr = tuple(cell_to_label[c] for c in index_to_position[target][0])
-        tb = tuple(cell_to_label[c] for c in index_to_position[target][1])
+        target_state = index_to_position[target]
+        tr = tuple(cell_to_label[c] for c in target_state[0])
+        tb = tuple(cell_to_label[c] for c in target_state[1])
         if status_next == -1:
             best_win.append((target, tr, tb))
         elif status_next == 1:
@@ -393,16 +469,20 @@ def show_forced_win_moves(index, color):
     opponent = COLOR_BLACK if color == COLOR_RED else COLOR_RED
     label = 'красных' if color == COLOR_RED else 'чёрных'
 
-    r = tuple(cell_to_label[c] for c in index_to_position[index][0])
-    b = tuple(cell_to_label[c] for c in index_to_position[index][1])
+    state = index_to_position[index]
+    r = tuple(cell_to_label[c] for c in state[0])
+    b = tuple(cell_to_label[c] for c in state[1])
     print(f"\nПозиция #{index}: Red={r} Black={b}")
+    print(f"Запрет красных: {forbidden_to_labels(state[2])}")
+    print(f"Запрет чёрных: {forbidden_to_labels(state[3])}")
     print(f"Ходы {label}, сохраняющие форсированную победу:")
 
     for target in moves[index]:
         if retro_status[opponent][target] == -1:
-            tr = tuple(cell_to_label[c] for c in index_to_position[target][0])
-            tb = tuple(cell_to_label[c] for c in index_to_position[target][1])
-            print(f"   -> #{target}: Red={tr} Black={tb}")
+            target_state = index_to_position[target]
+            tr = tuple(cell_to_label[c] for c in target_state[0])
+            tb = tuple(cell_to_label[c] for c in target_state[1])
+            print(f"   -> #{target}: Red={tr} Black={tb}  R-ban={forbidden_to_labels(target_state[2])}  B-ban={forbidden_to_labels(target_state[3])}")
 
 
 # ==============================
@@ -415,22 +495,25 @@ def print_moves_for_position(index, color):
     color = COLOR_RED или COLOR_BLACK.
     """
 
-    r, b = index_to_position[index]
+    r, b, red_forbidden, black_forbidden = index_to_position[index]
     r_labels = tuple(cell_to_label[c] for c in r)
     b_labels = tuple(cell_to_label[c] for c in b)
     print(f"\nПозиция #{index}:  Red={r_labels}  Black={b_labels}")
+    print(f"Запрет красных: {forbidden_to_labels(red_forbidden)}")
+    print(f"Запрет чёрных: {forbidden_to_labels(black_forbidden)}")
     print(f"Ходы для {color}:")
 
-    result = generate_moves_for_color(r, b, color, position_to_index)
+    result = generate_moves_for_color(r, b, red_forbidden, black_forbidden, color, position_to_index)
 
     if not result:
         print("   Нет доступных ходов")
         return
 
     for idx in result:
-        r2 = tuple(cell_to_label[c] for c in index_to_position[idx][0])
-        b2 = tuple(cell_to_label[c] for c in index_to_position[idx][1])
-        print(f"   -> #{idx}: Red={r2} Black={b2}")
+        st = index_to_position[idx]
+        r2 = tuple(cell_to_label[c] for c in st[0])
+        b2 = tuple(cell_to_label[c] for c in st[1])
+        print(f"   -> #{idx}: Red={r2} Black={b2}  R-ban={forbidden_to_labels(st[2])}  B-ban={forbidden_to_labels(st[3])}")
 
 
 def build_black_transition_rules():
@@ -440,7 +523,7 @@ def build_black_transition_rules():
     """
     rules = []
 
-    for r, b in index_to_position:
+    for r, b, red_forbidden, black_forbidden in index_to_position:
         transitions = []
         red_set = set(r)
         black_set = set(b)
@@ -450,8 +533,16 @@ def build_black_transition_rules():
                 if dst in red_set or dst in black_set:
                     continue
 
+                if black_forbidden and src == black_forbidden[0] and dst == black_forbidden[1]:
+                    continue
+
                 new_black = sorted((black_set - {src}) | {dst})
-                pos = (tuple(sorted(red_set)), tuple(new_black))
+                pos = (
+                    tuple(sorted(red_set)),
+                    tuple(new_black),
+                    red_forbidden,
+                    (dst, src)
+                )
                 idx = position_to_index.get(pos)
                 if idx is None:
                     continue
@@ -467,6 +558,8 @@ def build_black_transition_rules():
             rule = {
                 "red": [cell_to_label[c] for c in r],
                 "black": [cell_to_label[c] for c in b],
+                "red_forbidden": forbidden_to_labels(red_forbidden),
+                "black_forbidden": forbidden_to_labels(black_forbidden),
                 "transitions": sorted(transitions)
             }
             rules.append(rule)
@@ -485,6 +578,8 @@ def print_black_transition_rules(rules):
         print("addRule({")
         print(f"  red: [{red_line}],")
         print(f"  black: [{black_line}],")
+        print(f"  redForbidden: {format_forbidden_field(rule['red_forbidden'])},")
+        print(f"  blackForbidden: {format_forbidden_field(rule['black_forbidden'])},")
         print("  transitions: [")
         for src, dst in rule["transitions"]:
             print(f"    [{src}, {dst}],")
@@ -514,13 +609,13 @@ def print_black_transition_rules(rules):
 print_retrograde_summary(retro_status)
 
 # Анализ стартовой позиции (Red=(1,2,3) vs Black=(7,8,9)):
-print_move_outcomes(19, COLOR_RED)
-show_forced_win_moves(59, COLOR_BLACK)
-show_forced_win_moves(597, COLOR_BLACK)
+start_index = lookup_state_index((A1, A2, A3), (C1, C2, C3))
+if start_index is not None:
+    print_move_outcomes(start_index, COLOR_RED)
 
 # Полный список ходов чёрных, которые не приводят к немедленному поражению:
-black_rules = build_black_transition_rules()
-print_black_transition_rules(black_rules)
+#black_rules = build_black_transition_rules()
+#print_black_transition_rules(black_rules)
 
 # Полный вывод всех позиций:
 #print_all_positions()
