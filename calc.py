@@ -609,13 +609,13 @@ def print_black_transition_rules(rules):
 print_retrograde_summary(retro_status)
 
 # Анализ стартовой позиции (Red=(1,2,3) vs Black=(7,8,9)):
-start_index = lookup_state_index((A1, A2, A3), (C1, C2, C3))
-if start_index is not None:
-    print_move_outcomes(start_index, COLOR_RED)
+# start_index = lookup_state_index((A1, A2, A3), (C1, C2, C3))
+# if start_index is not None:
+#     print_move_outcomes(start_index, COLOR_RED)
 
 # Полный список ходов чёрных, которые не приводят к немедленному поражению:
-#black_rules = build_black_transition_rules()
-#print_black_transition_rules(black_rules)
+black_rules = build_black_transition_rules()
+print_black_transition_rules(black_rules)
 
 # Полный вывод всех позиций:
 #print_all_positions()
