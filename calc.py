@@ -37,6 +37,18 @@ winning_lines = [
 RED_FORBIDDEN   = (A1, A2, A3)
 BLACK_FORBIDDEN = (C1, C2, C3)
 
+# Позиции красных после единственного допустимого хода из стартовой расстановки
+RED_FIRST_MOVE_POSITIONS = {
+    tuple(sorted(pos))
+    for pos in (
+        (B1, A2, A3),
+        (B2, A2, A3),
+        (A1, B2, A3),
+        (A1, A2, B2),
+        (A1, A2, B3),
+    )
+}
+
 def has_valid_mill(player, color):
     """Проверяет, что у игрока есть настоящая (не стартовая) линия."""
     s = set(player)
@@ -87,12 +99,12 @@ neighbors = {
 #  Формирование словаря (с фильтрацией)
 # =====================================
 
-def generate_forbidden_options(stones):
+def generate_forbidden_options(stones, allow_none=False):
     """
     Возвращает список допустимых запрещённых ходов для данного набора камней.
-    None означает, что запрета нет.
+    None (отсутствие запрета) включается, если allow_none=True.
     """
-    options = [None]
+    options = [None] if allow_none else []
     seen = set()
     stone_set = set(stones)
     for cur in stones:
@@ -128,8 +140,11 @@ for red in combinations(cells, 3):
         if red_m and black_m:
             continue
 
-        red_forbidden_options = generate_forbidden_options(r)
-        black_forbidden_options = generate_forbidden_options(b)
+        allow_red_none = (r == RED_FORBIDDEN and b == BLACK_FORBIDDEN)
+        allow_black_none = (b == BLACK_FORBIDDEN and (r == RED_FORBIDDEN or r in RED_FIRST_MOVE_POSITIONS))
+
+        red_forbidden_options = generate_forbidden_options(r, allow_none=allow_red_none)
+        black_forbidden_options = generate_forbidden_options(b, allow_none=allow_black_none)
 
         for red_forbidden in red_forbidden_options:
             for black_forbidden in black_forbidden_options:
@@ -587,6 +602,52 @@ def print_black_transition_rules(rules):
         print("});\n")
 
 
+def print_black_transition_rules_numeric(rules, position_to_index):
+    """
+    Выводит правила в числовом формате.
+    """
+    print("\n// Чёрные: безопасные переходы (числовой формат)")
+    # Create a reverse mapping from label to cell number
+    label_to_cell = {v: k for k, v in cell_to_label.items()}
+
+    numeric_rules = {}
+
+    for rule in rules:
+        r = tuple(sorted([label_to_cell[c] for c in rule["red"]]))
+        b = tuple(sorted([label_to_cell[c] for c in rule["black"]]))
+
+        rf_labels = rule["red_forbidden"]
+        if rf_labels:
+            rf = (label_to_cell[rf_labels[0]], label_to_cell[rf_labels[1]])
+        else:
+            rf = None
+
+        bf_labels = rule["black_forbidden"]
+        if bf_labels:
+            bf = (label_to_cell[bf_labels[0]], label_to_cell[bf_labels[1]])
+        else:
+            bf = None
+
+        state = (r, b, rf, bf)
+        state_index = position_to_index.get(state)
+
+        if state_index is None:
+            continue
+
+        numeric_transitions = []
+        for src_label, dst_label in rule["transitions"]:
+            numeric_transitions.append([label_to_cell[src_label], label_to_cell[dst_label]])
+
+        if numeric_transitions:
+            numeric_rules[state_index] = numeric_transitions
+
+    print("{")
+    # sort keys to have deterministic output
+    for idx in sorted(numeric_rules.keys()):
+        print(f"  {idx}: {numeric_rules[idx]},")
+    print("}")
+
+
 # ==============================
 #  Пример использования
 # ==============================
@@ -606,7 +667,7 @@ def print_black_transition_rules(rules):
 #    print(f"#{idx}: {predecessor_map_red.get(idx, [])}")
 
 # Печать результатов ретроградного анализа:
-print_retrograde_summary(retro_status)
+#print_retrograde_summary(retro_status)
 
 # Анализ стартовой позиции (Red=(1,2,3) vs Black=(7,8,9)):
 # start_index = lookup_state_index((A1, A2, A3), (C1, C2, C3))
@@ -614,8 +675,12 @@ print_retrograde_summary(retro_status)
 #     print_move_outcomes(start_index, COLOR_RED)
 
 # Полный список ходов чёрных, которые не приводят к немедленному поражению:
-black_rules = build_black_transition_rules()
-print_black_transition_rules(black_rules)
+#black_rules = build_black_transition_rules()
+#print(f"\nTotal rules for black: {len(black_rules)}")
+
+# print_black_transition_rules(black_rules)
+#print_black_transition_rules_numeric(black_rules, position_to_index)
+
 
 # Полный вывод всех позиций:
-#print_all_positions()
+print_all_positions()
